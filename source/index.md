@@ -586,151 +586,6 @@ following window:
 These are the general notes about the REST API protocol used by BaasBox
 and its JSON format.
 
-### Android SDK
-
-BaasBox provides a native Android SDK, to further ease development of mobile applications.
-The SDK is distributed as a jar.
-
-To get started download it from the [download section](http://www.baasbox.com/download) of the website,
-and put it in your libs folder.
-
-#### Initialization
-
-> Example initialization
-
-```java
-//...
-import com.baasbox.android.BaasBox;
-
-public class MyApp extends Application {
-  
-  private BaasBox client;
-  
-  @Override
-  public void onCreate() {
-    super.onCreate();
-    BaasBox.Builder b = 
-        new BaasBox.Builder(this);
-    client = b.setApiDomain("address")
-              .setAppCode("appcode")
-              .init();
-  }
-}
-```
-
-Currently, you can have only one client per application. 
-The client must be initialized before you can use  any of the provided features.
-The preferred way to initialize the it is to override the default 
-application and configure it in the ``onCreate()`` method, 
-using the ``BaasBox.Builder`` class.
-
-
-#### General usage
-
-> Example requests
-
-```java
-// Here  BaasDocument is used as an example
-// it represents documents on the server, 
-// more on this later
-
-// asynchronous request
-RequestToken tok = BaasDocument.fetchAll("coll",
-  new BaasHandler<List<BaasDocument>>() {
-    @Override
-    public void handle(BaasResult<List<BaasDocument>> res) {
-      // res is the result of the request
-    }
-});
-
-// syncrhonous equivalent BLOCKS!!!
-BaasResult<List<BaasDocument>> res = 
-  BaasDocument.fetchAllSync("coll");
-```
-
-
-Most BaasBox rest resources are exposed through wrapper classes.
-Endpoints are accessible through asynchronous methods, that accept a general callback interface
-``BaasHandler<T>``
-
-You can also access endpoints using synchronous alternatives using the ``*Sync`` version of the methods.
-
-Results are always wrapped in ``BaasResult<T>``, this can represent the actual result or a failure.
-
-You can control asynchronous requests thorugh the returned RequestToken.
-
-#### Asynchronous requests management
-
-```java
-// an example asynchronous request in an activity
-public class MyActivity extends Activity implements
-  BaasHandler<BaasUser>{
-  private final statis String BAAS_REQ = "tag";
-  private RequestToken token;
-  
-  public void onCreate(Bundle savedInstanceState) {
-    super.onCreate(savedInstanceState);
-    // you resume suspended requests
-    // and obtain the token back
-    token = RequestToken.loadAndResume(
-      savedInstanceState,
-      BAAS_REQ,
-      this);
-   if(token!=null){
-    // a request has been resumed
-   }
-  }
-  
-  public void onSaveInstanceSate(Bundle state){
-    super.onSaveInstanceState(state);
-    if(token!=null){
-      token.suspendAndSave(state,TAG);
-    }
-  }
-  
-  public void handle(BaasResult<BaasUser> res){
-    token = null;
-    // process result
-  }
-}
-
-
-```
-Asynchronous requests are executed by a pool of threads.
-While an asynchronous request is running you can manage it
-using the return value of the method, a ``RequestToken``.
-Tokens are designed to let you *suspend* the assigned callback without
-interrupting the real request, allowing the later resumption of
-result processing on the main thread when you are ready to handle it.
-This is quite useful when callbacks are tied to the lifecycle of your
-acitivities.
-
-Request tokens let you cancel/abort requests, or wait for their completion,
-this is useful in testing or if you want to parallelize your http requests.
-
-#### Pass through API
-
-```java
-BaasBox cli  = BaasBox.getDefault();
-cli.rest(HttpRequest.GET,
-         "endpoint",
-         optJsonBody,
-         authenticate,
-         new BaasHandler<JsonObject>(){
-  @Override
-  public void handle(BaasResult<JsonObject> res){
-  }});
-```
-Some rest endpoints have no direct equivalent in the api.
-For them you can use the lower level pass through api provided by the sdk
-through the ``rest()`` and ``restSync()`` methods.
-Using these methods you can access these apis while still enjoing the rest
-of the sdk features, such as concurrency and lifecycle management, caching,
-handling of the authentication.
-
-
-### iOS SDK
-
 ### Request Headers
 
 If not specified otherwise, all requests need custom HTTP headers.
@@ -829,8 +684,8 @@ curl 'http://localhost:9000/users?page=0&recordsPerPage=1' \
 
 ```objective_c
 NSDictionary *parameters = 
-  @{kPageNumber : @0,
-    kPageSize : [NSNumber numberWithInteger:BAAPageLength]};
+  @{kPageNumberKey : @0,
+    kPageSizeKey : [NSNumber numberWithInteger:kPageLength]};
 [BAAUser loadUsersWithParameters:parameters
                       completion:^(NSArray *users, NSError *e) {
                           
@@ -882,6 +737,224 @@ Parameter | Description
 <aside class="notice">
 	The value of the parameter must be URL encoded.
 </aside>
+
+### iOS SDK
+
+The SDK is distributed as a zip file (Cocoapod is coming up, bear with us). To get started download it from the [download section](http://www.baasbox.com/download) of the website, and drag and drop the whole folder into your Xcode project.
+
+#### Importing
+
+The simplest way to import the SDK is to add this line ``#import "BAAClient.h"`` into the .pch file of your project and you are all set. Check out the example on the right.
+
+```
+#ifdef __OBJC__
+  #import <UIKit/UIKit.h>
+  #import <Foundation/Foundation.h>
+  #import "BAAClient.h"
+#endif
+```
+
+#### Initialization
+
+You need to initialize the SDK before making any API call. The best place to do it is in the ```application:didFinishLaunchingWithOptions`` method of your app. All you need to provide is the base URL and the app code, as in the example on the right.
+
+```
+[BaasBox setBaseURL:@"http://localhost:9000"
+            appCode:@"1234567890"];
+```
+
+#### Architecture and pass through
+
+The SDK is structured following an onion-skin model. Most of the API are available through classes like ``BAAUser`` or ``BAAObject``, which respectively contains methods for user management (login, signup, etc.) and documents (create, update, etc.). We suggest you to use these methods when available. In case you see a "TO BE IMPLEMENTED" in the iOS section you can resort to use the ``BAAClient`` class. 
+On the right there is an example of a GET request.
+
+```
+// Assumes there is a logged in user
+BAAClient *client = [BAAClient sharedClient];
+[client getPath:@"/file/details"
+     parameters:parameters
+        success:^(id responseObject) {
+          
+          NSLog(@"response is %@", responseObject);         
+          
+        } failure:^(NSError *error) {
+          
+          NSLog(@"error is %@", error); 
+          
+        }];
+```
+
+There are four methods, one for each HTTP verb.
+
+``- (void)getPath:(NSString *)path
+     parameters:(NSDictionary *)parameters
+        success:(void (^)(id responseObject))success
+        failure:(void (^)(NSError *error))failure;``
+
+
+``- (void)postPath:(NSString *)path
+      parameters:(NSDictionary *)parameters
+         success:(void (^)(id responseObject))success
+         failure:(void (^)(NSError *error))failure;``
+
+``- (void)putPath:(NSString *)path
+    parameters:(NSDictionary *)parameters
+       success:(void (^)(id responseObject))success
+       failure:(void (^)(NSError *error))failure;``
+
+``- (void)deletePath:(NSString *)path
+       parameters:(NSDictionary *)parameters
+          success:(void (^)(id responseObject))success
+          failure:(void (^)(NSError *error))failure;``
+
+
+As stated above we strongly suggest to use higher level methods available in the classes ``BAAFile``, ``BAAObject`` and ``BAAUser`` and to resort to the ``BAAClient`` methods only if you can't do otherwise. We will soon finish the implementation of the SDK so that you don't neeed to use ``BAAClient`` methods at all in your app.
+
+
+
+### Android SDK
+
+BaasBox provides a native Android SDK, to further ease development of mobile applications.
+The SDK is distributed as a jar. To get started download it from the [download section](http://www.baasbox.com/download) of the website, and put it in the libs folder of your project.
+
+#### Initialization
+
+> Example initialization
+
+```
+//...
+import com.baasbox.android.BaasBox;
+
+public class MyApp extends Application {
+  
+  private BaasBox client;
+  
+  @Override
+  public void onCreate() {
+    super.onCreate();
+    BaasBox.Builder b = 
+        new BaasBox.Builder(this);
+    client = b.setApiDomain("address")
+              .setAppCode("appcode")
+              .init();
+  }
+}
+```
+
+Currently, you can have only one client per application. 
+The client must be initialized before you can use  any of the provided features.
+The preferred way to initialize the it is to override the default 
+application and configure it in the ``onCreate()`` method, 
+using the ``BaasBox.Builder`` class.
+
+
+#### General usage
+
+> Example requests
+
+```
+// Here  BaasDocument is used as an example
+// it represents documents on the server, 
+// more on this later
+
+// asynchronous request
+RequestToken tok = BaasDocument.fetchAll("coll",
+  new BaasHandler<List<BaasDocument>>() {
+    @Override
+    public void handle(BaasResult<List<BaasDocument>> res) {
+      // res is the result of the request
+    }
+});
+
+// syncrhonous equivalent BLOCKS!!!
+BaasResult<List<BaasDocument>> res = 
+  BaasDocument.fetchAllSync("coll");
+```
+
+
+Most BaasBox rest resources are exposed through wrapper classes.
+Endpoints are accessible through asynchronous methods, that accept a general callback interface
+``BaasHandler<T>``
+
+You can also access endpoints using synchronous alternatives using the ``*Sync`` version of the methods.
+
+Results are always wrapped in ``BaasResult<T>``, this can represent the actual result or a failure.
+
+You can control asynchronous requests thorugh the returned RequestToken.
+
+#### Asynchronous requests management
+
+```
+// an example asynchronous request in an activity
+public class MyActivity extends Activity implements
+  BaasHandler<BaasUser>{
+  private final statis String BAAS_REQ = "tag";
+  private RequestToken token;
+  
+  public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    // you resume suspended requests
+    // and obtain the token back
+    token = RequestToken.loadAndResume(
+      savedInstanceState,
+      BAAS_REQ,
+      this);
+   if(token!=null){
+    // a request has been resumed
+   }
+  }
+  
+  public void onSaveInstanceSate(Bundle state){
+    super.onSaveInstanceState(state);
+    if(token!=null){
+      token.suspendAndSave(state,TAG);
+    }
+  }
+  
+  public void handle(BaasResult<BaasUser> res){
+    token = null;
+    // process result
+  }
+}
+
+
+```
+Asynchronous requests are executed by a pool of threads.
+While an asynchronous request is running you can manage it
+using the return value of the method, a ``RequestToken``.
+Tokens are designed to let you *suspend* the assigned callback without
+interrupting the real request, allowing the later resumption of
+result processing on the main thread when you are ready to handle it.
+This is quite useful when callbacks are tied to the lifecycle of your
+acitivities.
+
+Request tokens let you cancel/abort requests, or wait for their completion,
+this is useful in testing or if you want to parallelize your http requests.
+
+#### Pass through API
+
+```
+BaasBox cli  = BaasBox.getDefault();
+cli.rest(HttpRequest.GET,
+         "endpoint",
+         optJsonBody,
+         authenticate,
+         new BaasHandler<JsonObject>(){
+  @Override
+  public void handle(BaasResult<JsonObject> res){
+  }});
+```
+Some rest endpoints have no direct equivalent in the api.
+For them you can use the lower level pass through api provided by the sdk
+through the ``rest()`` and ``restSync()`` methods.
+Using these methods you can access these apis while still enjoing the rest
+of the sdk features, such as concurrency and lifecycle management, caching,
+handling of the authentication.
+
+
+
+
+
 
 ##User Management
 
@@ -1479,8 +1552,8 @@ curl http://localhost:9000/users \
 ```
 
 ```objective_c
-NSDictionary *parameters = @{kPageNumber : @0,
-                           kPageSize : [NSNumber numberWithInteger:BAAPageLength]};
+NSDictionary *parameters = @{kPageNumberKey : @0,
+                             kPageSizeKey : [NSNumber numberWithInteger:kPageLength]};
 [BAAUser loadUsersWithParameters:parameters
                       completion:^(NSArray *users, NSError *error) {
                           
@@ -2524,7 +2597,21 @@ curl http://localhost:9000/document/mycollection/count \
 ```
 
 ```objective_c
-NOT IMPLEMENTED
+BAAClient *client = [BAAClient sharedClient];
+
+[client getPath:@"document/mycollection/count"
+     parameters:nil
+        success:^(id responseObject) {
+            
+            NSLog(@"resp %@", responseObject);
+            
+        }
+ 
+        failure:^(NSError *error) {
+            
+            NSLog(@"err %@", error);
+            
+        }];
 ```
 
 ```java
@@ -2596,8 +2683,8 @@ curl 'http://localhost:9000/document/mycollection?page=0&recordsPerPage=1' \
 }];
 
 // Version with pagination
-NSDictionary *parameters = @{kPageNumber : @0,
-                             kPageSize : @20};
+NSDictionary *parameters = @{kPageNumberKey : @0,
+                             kPageSizeKey : @20};
 [Post getObjectsWithParams:parameters
                 completion:^(NSArray *posts, NSError *error) {
 
@@ -3545,7 +3632,8 @@ curl http://localhost:9000/admin/asset \
 ```
 
 ```objective_c
-TO BE IMPLEMENTED
+// NOT IMPLEMENTED
+// It's only for admins. You can do it in the web console.
 ```
 
 ```java
@@ -3585,7 +3673,8 @@ curl http://localhost:9000/admin/asset \
 ```
 
 ```objective_c
-TO BE IMPLEMENTED
+// NOT IMPLEMENTED
+// It's only for admins. You can do it in the web console.
 ```
 
 ```java
@@ -3650,7 +3739,37 @@ curl http://localhost:9000/asset/margherita \
 ```
 
 ```objective_c
-TO BE IMPLEMENTED
+// If the asset is a JSON
+BAAClient *client = [BAAClient sharedClient];
+[client getPath:@"asset/margherita/data"
+     parameters:nil
+        success:^(id responseObject) {
+            
+            NSLog(@"resp %@", responseObject);
+            
+        }
+ 
+        failure:^(NSError *error) {
+            
+            NSLog(@"err %@", error);
+            
+        }];
+
+// If the asset is a file
+BAAClient *client = [BAAClient sharedClient];
+[client getPath:@"asset/margherita"
+     parameters:nil
+        success:^(id responseObject) {
+            
+            NSLog(@"resp %@", responseObject);
+            
+        }
+ 
+        failure:^(NSError *error) {
+            
+            NSLog(@"err %@", error);
+            
+        }];
 ```
 
 ```java
@@ -3660,7 +3779,7 @@ TO BE IMPLEMENTED
 > Example of a response
 
 ```json
-The file itself.
+The file itself or the JSON
 ```
 
 `GET /asset/:name`
@@ -3684,7 +3803,21 @@ curl -X DELETE http://localhost:9000/admin/asset/margherita  \
 ```
 
 ```objective_c
-TO BE IMPLEMENTED
+BAAClient *client = [BAAClient sharedClient];
+
+[client deletePath:@"admin/asset/margherita"
+        parameters:nil
+           success:^(id responseObject) {
+               
+               NSLog(@"resp %@", responseObject);
+               
+           }
+ 
+           failure:^(NSError *error) {
+               
+               NSLog(@"err %@", error);
+               
+           }];
 ```
 
 ```java
@@ -3727,7 +3860,21 @@ curl http://localhost:9000/admin/asset  \
 ```
 
 ```objective_c
-TO BE IMPLEMENTED
+BAAClient *client = [BAAClient sharedClient];
+
+[client getPath:@"admin/asset"
+        parameters:nil
+           success:^(id responseObject) {
+               
+               NSLog(@"resp %@", responseObject);
+               
+           }
+ 
+           failure:^(NSError *error) {
+               
+               NSLog(@"err %@", error);
+               
+           }];
 ```
 
 ```java
@@ -4000,7 +4147,7 @@ Parameter | Description
 
 Push notifications are messages that a user can receive using an APP that has BaasBox as back-end. Supported platforms are Android and iOS. Certificates have to be configured in the [Settings of the console](#console-settings).
 
-### Enable push notifications on a device
+### Enable push notifications
 
 > Example of a request to enable push notifications
 
@@ -4034,59 +4181,9 @@ Parameter | Description
 **os** | The operative system. One of: `ios`, `android`. Mandatory.
 **pushToken** | The token returned by either Apple or Google to enable push notifications. Mandatory.
 
-### (Deprecated) Enable push notifications on a device
 
-> Example of a request to enable push notifications
 
-```shell
-curl -X PUT  http://localhost:9000/push/device/ios/123  \
- 	 -H X-BB-SESSION:2605d809-03f0-4751-8f8e-5f658e179a23
-```
-
-```objective_c
-// Assumes there is a logged in user
-BAAClient *client = [BAAClient sharedClient];
-[client askToEnablePushNotifications];
-```
-
-```java
-GoogleCloudMessaging msg = GoogleCloudMessaging.getInstance(context);
-String registrationId = gcm.register(SENDER_ID);
-// ...
-// ...
-// ...
-// Assumes there is a logged in user
-BaasBox box =BaasBox.getDefault();
-box.registerPush(registrationId,new BaasHandler<Void>() {
-  @Override
-  public void handle(BaasResult<Void> res) {
-    if (res.isSuccess()) {
-      Log.d("LOG","You registered successfully");
-    }
-  }
-});
-```
-
-> Example of response
-
-```json
-{
-  "result": "ok",
-  "data": "",
-  "http_code": 200
-}
-```
-
-`PUT /push/device/:os/:pushToken`
-
-Enables a specific user (logged using a specific device) to receive push notifications.
-
-Parameter | Description
---------- | -----------
-**os** | The operative system. One of: `ios`, `android`. Mandatory.
-**pushToken** | The token returned by either Apple or Google to enable push notifications. Mandatory.
-
-### Disable push notifications on a device
+### Disable push notifications
 
 > Example of a request to enable push notifications
 
